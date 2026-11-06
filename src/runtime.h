@@ -43,6 +43,13 @@ void runtime_memory_prepare_cpu_write(uintptr_t address, uint64_t size);
 /* bbport (frame stats): a guest thread was blocked `ns` in the runtime (0 cond, 1 mutex, 2 sema, 3 sleep). */
 void runtime_wait_note(int kind, uint64_t ns);
 void runtime_wait_report(double frames);
+/* BB_WAKE_STATS=1: who wakes the game's main thread. runtime_wake_stats() says whether it is on;
+ * runtime_waker_name() names the calling thread (guest name, else the host thread's) for a
+ * signal to record; runtime_wake_note() is called by the main thread after a wait (0 cond,
+ * 2 sema) with the time waited and the name the last signal left, and logs a summary every 10 s. */
+int runtime_wake_stats(void);
+const char *runtime_waker_name(void);
+void runtime_wake_note(int kind, uint64_t ns, const char *waker);
 void runtime_guest_call_sites(uint64_t out[3]);
 /* bbport: times the game's heap asked for more memory (posix_mmap): a sign it leaks. */
 uint64_t runtime_heap_growths(void);
