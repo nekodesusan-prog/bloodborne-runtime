@@ -46,7 +46,6 @@ EFFECTS={
     'effect_dynamic_shadows':('Disable Dynamic Light Shadows (perf increase)',None),
     'effect_ssr':(None,'Enable Screen Space Reflections (READ NOTE)'),
     'effect_bloom':('Disable Bloom',None),
-    'perf_patch':(None,'Performance Patch (perf increase)'),
     'lower_physics':(None,'Lower object/corpse physics'),
     'skip_intro':(None,'Skip Intro'),
     'debug_camera':(None,'Restore Debug Camera'),

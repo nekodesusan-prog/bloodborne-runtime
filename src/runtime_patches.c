@@ -50,7 +50,6 @@ static const struct { const char *key, *off, *on; int hot; } EFFECTS[] = {
     {"effect_dynamic_shadows", "Disable Dynamic Light Shadows (perf increase)", NULL, 1},
     {"effect_ssr", NULL, "Enable Screen Space Reflections (READ NOTE)", 0},
     {"effect_bloom", "Disable Bloom", NULL, 1},
-    {"perf_patch", NULL, "Performance Patch (perf increase)", 0},
     {"lower_physics", NULL, "Lower object/corpse physics", 0},
     {"skip_intro", NULL, "Skip Intro", 0},
     {"debug_camera", NULL, "Restore Debug Camera", 0},
