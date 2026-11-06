@@ -46,6 +46,7 @@ EFFECTS={
     'effect_dynamic_shadows':('Disable Dynamic Light Shadows (perf increase)',None),
     'effect_ssr':(None,'Enable Screen Space Reflections (READ NOTE)'),
     'effect_bloom':('Disable Bloom',None),
+    'perf_patch':(None,'Performance Patch (perf increase)'),
     'lower_physics':(None,'Lower object/corpse physics'),
     'skip_intro':(None,'Skip Intro'),
     'debug_camera':(None,'Restore Debug Camera'),
@@ -56,6 +57,8 @@ EFFECTS={
 # PS4's AMD CPU, so a block the game gates on a computed flag never runs. The community fix runs
 # it always; on by default on Intel. BB_INTEL_TONEMAP_FIX=0/1 forces it off or on.
 INTEL_TONEMAP='Intel Black Tonemap Fix'
+# Patches whose lines outside the executable are left out instead of failing (typos, by the look).
+SKIPS_STRAY_LINES={'Performance Patch (perf increase)'}
 
 
 def intel_cpu(cpuinfo='/proc/cpuinfo'):
@@ -291,6 +294,8 @@ def compile_patches(xml, names, app_version, segments):
             offset=int(line.get('Address'),0)-EBOOT_BASE
             data=encode(line)
             if not any(start<=offset and offset+len(data)<=end for start,end in segments):
+                # The Performance Patch's two stray lines are left out (runtime_patches.c).
+                if name in SKIPS_STRAY_LINES: continue
                 raise ValueError(f'{name}: address {line.get("Address")} is outside the eboot')
             writes.append((offset,data))
     return writes

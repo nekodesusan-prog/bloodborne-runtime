@@ -50,6 +50,7 @@ static const struct { const char *key, *off, *on; int hot; } EFFECTS[] = {
     {"effect_dynamic_shadows", "Disable Dynamic Light Shadows (perf increase)", NULL, 1},
     {"effect_ssr", NULL, "Enable Screen Space Reflections (READ NOTE)", 0},
     {"effect_bloom", "Disable Bloom", NULL, 1},
+    {"perf_patch", NULL, "Performance Patch (perf increase)", 0},
     {"lower_physics", NULL, "Lower object/corpse physics", 0},
     {"skip_intro", NULL, "Skip Intro", 0},
     {"debug_camera", NULL, "Restore Debug Camera", 0},
@@ -482,6 +483,7 @@ static int in_segments(uint64_t offset, size_t size, uint64_t (*segments)[2], si
         if (segments[i][0] <= offset && offset + size <= segments[i][1]) return 1;
     return 0;
 }
+static int skips_stray_lines(const char *name) { return !strcmp(name, "Performance Patch (perf increase)"); }
 /* The lines of META as writes (patches.py's loop body of compile_patches and compile_external). */
 static int meta_writes(const Meta *meta, uint64_t (*segments)[2], size_t segment_count, Writes *out, const char *who,
                        char *error, size_t error_size) {
@@ -497,6 +499,14 @@ static int meta_writes(const Meta *meta, uint64_t (*segments)[2], size_t segment
         if (encode(&meta->lines[l], &data, &size, error, error_size)) return -1;
         if (magnitude < EBOOT_BASE || !in_segments(offset, size, segments, segment_count)) {
             free(data);
+            /* Community patches with lines that miss the executable (the Performance Patch's
+             * 0x603AC8D and 0x603AD1A: 0xB00000 past writes it also makes, typos by the look of it):
+             * those lines are left out and the rest applied, as an emulator writing into memory
+             * the game never reads would leave them without effect. */
+            if (who && skips_stray_lines(who)) {
+                fprintf(stderr, "Patches: %s: line at %s left out (outside the eboot)\n", who, address);
+                continue;
+            }
             return who ? fail(error, error_size, "%s: address %s is outside the eboot", who, address)
                        : fail(error, error_size, "address %s is outside the eboot", address);
         }
