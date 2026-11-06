@@ -124,6 +124,7 @@
   "launcher.options.fps.30Hint": "Come su PS4",
   "launcher.options.fpsSize.small": "Piccolo",
   "launcher.options.fpsSize.big": "Grande",
+  "launcher.options.fpsSize.bar": "Barra delle prestazioni",
   "launcher.options.fpsPosition.top_left": "In alto a sinistra",
   "launcher.options.fpsPosition.top_center": "In alto al centro",
   "launcher.options.fpsPosition.top_right": "In alto a destra",

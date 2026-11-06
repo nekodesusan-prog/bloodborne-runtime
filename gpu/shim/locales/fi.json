@@ -124,6 +124,7 @@
   "launcher.options.fps.30Hint": "Kuten PS4:llä",
   "launcher.options.fpsSize.small": "Pieni",
   "launcher.options.fpsSize.big": "Suuri",
+  "launcher.options.fpsSize.bar": "Performance bar",
   "launcher.options.fpsPosition.top_left": "Ylhäällä vasemmalla",
   "launcher.options.fpsPosition.top_center": "Ylhäällä keskellä",
   "launcher.options.fpsPosition.top_right": "Ylhäällä oikealla",

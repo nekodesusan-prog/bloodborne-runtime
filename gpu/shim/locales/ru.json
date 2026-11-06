@@ -124,6 +124,7 @@
   "launcher.options.fps.30Hint": "Как на PS4",
   "launcher.options.fpsSize.small": "Маленький",
   "launcher.options.fpsSize.big": "Большой",
+  "launcher.options.fpsSize.bar": "Панель производительности",
   "launcher.options.fpsPosition.top_left": "Слева вверху",
   "launcher.options.fpsPosition.top_center": "По центру вверху",
   "launcher.options.fpsPosition.top_right": "Справа вверху",

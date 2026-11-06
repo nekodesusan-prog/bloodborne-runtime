@@ -124,6 +124,7 @@
   "launcher.options.fps.30Hint": "PS4와 동일",
   "launcher.options.fpsSize.small": "작게",
   "launcher.options.fpsSize.big": "크게",
+  "launcher.options.fpsSize.bar": "성능 막대",
   "launcher.options.fpsPosition.top_left": "왼쪽 위",
   "launcher.options.fpsPosition.top_center": "가운데 위",
   "launcher.options.fpsPosition.top_right": "오른쪽 위",

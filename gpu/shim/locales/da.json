@@ -124,6 +124,7 @@
   "launcher.options.fps.30Hint": "Som på PS4",
   "launcher.options.fpsSize.small": "Lille",
   "launcher.options.fpsSize.big": "Stor",
+  "launcher.options.fpsSize.bar": "Performance bar",
   "launcher.options.fpsPosition.top_left": "Øverst til venstre",
   "launcher.options.fpsPosition.top_center": "Øverst i midten",
   "launcher.options.fpsPosition.top_right": "Øverst til højre",

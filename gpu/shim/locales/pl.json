@@ -124,6 +124,7 @@
   "launcher.options.fps.30Hint": "Jak na PS4",
   "launcher.options.fpsSize.small": "Mały",
   "launcher.options.fpsSize.big": "Duży",
+  "launcher.options.fpsSize.bar": "Performance bar",
   "launcher.options.fpsPosition.top_left": "Lewy górny róg",
   "launcher.options.fpsPosition.top_center": "Góra, środek",
   "launcher.options.fpsPosition.top_right": "Prawy górny róg",
