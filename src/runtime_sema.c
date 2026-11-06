@@ -55,10 +55,58 @@ static ABI int32_t sem_create(uint32_t *out,const char *name,uint32_t attr,
     pthread_mutex_unlock(&lock);
     return 0;
 }
+/* BB_SEMA_SPIN_US=N (0..200, default 0): before the game's main thread sleeps on a semaphore it
+ * waits up to N microseconds awake for the count. On an iPad the main thread's semaphore waits in
+ * Central Yharnam were about 10,000 per 10 s at 0.02-0.07 ms each (physics and graphics jobs
+ * finishing), so going to sleep and being woken was a large part of each. Only the main thread
+ * spins: the workers' waits are long and spinning there would only add heat. */
+static uint64_t spin_ns(void) {
+    static int64_t ns=-1;
+    if (ns<0) {
+        const char *e=getenv("BB_SEMA_SPIN_US");
+        long us=e ? strtol(e,NULL,10) : 0;
+        if (us<0) us=0;
+        if (us>200) us=200;
+        ns=(int64_t)us*1000;
+    }
+    return (uint64_t)ns;
+}
+static _Thread_local int is_main=-1;
+static size_t spun_waits, spun_won;
 static int32_t wait_count(uint32_t id,int32_t need,uint32_t *timeout,int block) {
     pthread_mutex_lock(&lock);
     Sema *s=find(id);
     int32_t result=0;
+    /* The short spin: the count read without the lock while spinning (a hint), taken under it. */
+    if (s && block && need>0 && s->count<need && !s->deleted && spin_ns() && !(timeout && !*timeout)) {
+        if (is_main<0) { const char *n=runtime_thread_name(); is_main=n && !strcmp(n,"main"); }
+        if (is_main) {
+            ++s->active; ++spun_waits; /* active: the semaphore is not freed while unlocked */
+            pthread_mutex_unlock(&lock);
+            const uint64_t until=now_ns()+spin_ns();
+            while (__atomic_load_n(&s->count,__ATOMIC_RELAXED)<need && !__atomic_load_n(&s->deleted,__ATOMIC_RELAXED) && now_ns()<until)
+                for (int i=0;i<32;++i) {
+#if defined(__aarch64__)
+                    __asm__ volatile("yield");
+#elif defined(__x86_64__)
+                    __builtin_ia32_pause();
+#endif
+                }
+            pthread_mutex_lock(&lock);
+            --s->active;
+            if (s->deleted) { if (!s->active) free(s); s=NULL; result=ERR(3); }
+            else if (s->count>=need) ++spun_won;
+            static uint64_t window;
+            const uint64_t now=now_ns();
+            if (!window) window=now;
+            if (now-window>=10000000000ull) {
+                printf("Semaphore spin (%lld us, main thread): %zu waits in 10 s, %.0f%% served without sleeping\n",
+                       (long long)(spin_ns()/1000),spun_waits,spun_waits ? 100.0*spun_won/spun_waits : 0.0);
+                spun_waits=spun_won=0; window=now;
+            }
+        }
+    }
+    if (result) { pthread_mutex_unlock(&lock); return result; }
     if (!s) result=ERR(3);
     else if (need<=0 || need>s->maximum) result=ERR(22);
     else if (s->count>=need) { s->count-=need; ++acquired; }
