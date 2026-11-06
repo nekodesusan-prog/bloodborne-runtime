@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <mutex>
 #include <unordered_map>
 
@@ -31,6 +32,17 @@ void Configure(void* layer_ptr, const LayerConfig& config) {
     CGColorSpaceRelease(space);
     layer.pixelFormat = config.hdr ? MTLPixelFormatRGB10A2Unorm : MTLPixelFormatBGRA8Unorm;
     layer.wantsExtendedDynamicRangeContent = config.hdr;
+    // Apple's Metal performance HUD on the game's layer (iOS 16 / macOS 13). MTL_HUD_ENABLED=1 in
+    // the environment alone is read when Metal starts, which in an app that drew its own screen
+    // before the game (the iOS launcher) is too early: the HUD then never showed.
+    if (const char* hud = std::getenv("MTL_HUD_ENABLED"); hud && hud[0] == '1') {
+        if (@available(iOS 16.0, macOS 13.0, *)) {
+            if ([layer respondsToSelector:@selector(setDeveloperHUDProperties:)]) {
+                layer.developerHUDProperties = @{@"mode" : @"default"};
+                std::printf("Metal HUD: on the game's layer\n");
+            }
+        }
+    }
 }
 
 std::pair<u32, u32> FitDrawableSize(void* layer_ptr) {
