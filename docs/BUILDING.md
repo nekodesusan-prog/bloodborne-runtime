@@ -103,6 +103,7 @@ BB_GAME_DIR=/path/to/your/game bash run.sh
 | `BB_FRAME_STATS=1` | Frame statistics in the log |
 | `BB_WAIT_STATS=1` | With the frame statistics, where the game's threads wait (mutexes, condition variables, semaphores, sleeps) by call site; off by default (it costs the waiting threads 3–10%); also on with `BB_WAIT_LOG=FILE` |
 | `BB_WAKE_STATS=1` | Who wakes the game's main thread (or with `BB_WAKE_THREAD=TEXT` the threads whose name contains TEXT, e.g. `Havok`, together): every 10 s, the time they slept on condition variables and semaphores by the thread that signalled them, and their semaphore calls that did not sleep; off by default |
+| `BB_EFFICIENCY_THREADS=TEXT,...` | Apple: the game's threads whose name contains one of the texts run at utility QoS (the system may put them on the efficiency cores) instead of user-interactive, for less power and heat; unset by default |
 | `BB_SEMA_SPIN_US=N` | Before the game's main thread sleeps on a semaphore it waits up to N µs (0–200) awake for it; 0 (off) by default. Every 10 s the log gives the share of waits served without sleeping |
 | `BB_THREAD_QOS=0` | The GPU command processor and the recorders at the default QoS class, as before (default: user-interactive, so Apple platforms keep them on the performance cores) |
 | `BB_SKIP_GAME_CHECK=1` | Skip the game folder check |

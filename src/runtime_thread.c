@@ -232,11 +232,25 @@ static void set_host_name(const char *name) {
     memcpy(host,name,strnlen(name,sizeof(host)-1));
     bb_set_thread_name(host);
 }
+/* BB_EFFICIENCY_THREADS=TEXT,TEXT...: the game's threads whose name contains one of them run at
+ * utility QoS instead of user-interactive, so the system may put them on the efficiency cores:
+ * for threads off the frame's critical path (audio mixing, file loading, network, saving), to cut
+ * power and heat. On an iPad in Central Yharnam the FMOD mixer alone used 19-26% of a core. */
+static int efficiency_thread(const char *name) {
+    const char *list=getenv("BB_EFFICIENCY_THREADS");
+    if (!list || !*list || !name) return 0;
+    char copy[512];
+    snprintf(copy,sizeof(copy),"%s",list);
+    for (char *save=NULL,*part=strtok_r(copy,",",&save);part;part=strtok_r(NULL,",",&save))
+        if (*part && strstr(name,part)) return 1;
+    return 0;
+}
 static void *host_start(void *p) {
     GuestThread *t=p;
     bb_game_thread_priority();
     attach(t);
     set_host_name(t->name);
+    if (efficiency_thread(t->name)) bb_thread_efficiency();
     if (getenv("BB_THREAD_QOS_LOG")) printf("Runtime: thread '%s' QoS %#x\n",t->name,bb_thread_qos_self());
     probe_lifecycle(t, "entry");
     if (!setjmp(t->exit_jump)) {
