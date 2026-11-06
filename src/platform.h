@@ -184,6 +184,9 @@ void bb_set_thread_name(const char *name);
  * user-interactive QoS, so the scheduler keeps them on performance cores and wakes them first.
  * Nothing elsewhere. */
 void bb_game_thread_priority(void);
+/* Apple: the calling thread at utility QoS, which lets the system run it on the efficiency
+ * cores (less power and heat; BB_EFFICIENCY_THREADS in runtime_thread.c). Nothing elsewhere. */
+void bb_thread_efficiency(void);
 /* macOS: tells the system the process is latency-critical and user-initiated (no timer
  * coalescing or App Nap); nothing elsewhere. */
 void bb_latency_critical(void);

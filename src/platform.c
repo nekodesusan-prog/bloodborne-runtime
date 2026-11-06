@@ -84,6 +84,7 @@ void bb_sleep_until(uint64_t deadline_ns) {
 }
 void bb_set_thread_name(const char *name) { pthread_setname_np(pthread_self(),name); }
 void bb_game_thread_priority(void) {}
+void bb_thread_efficiency(void) {}
 int bb_random(void *buffer, size_t size) { return getrandom(buffer,size,0)<0 ? -1 : 0; }
 void bb_latency_critical(void) {}
 void bb_thread_qos(pthread_attr_t *attributes) { (void)attributes; }
@@ -337,6 +338,7 @@ void bb_sleep_until(uint64_t deadline_ns) {
 }
 void bb_set_thread_name(const char *name) { pthread_setname_np(name); }
 void bb_game_thread_priority(void) { pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE,0); }
+void bb_thread_efficiency(void) { pthread_set_qos_class_self_np(QOS_CLASS_UTILITY,0); }
 int bb_random(void *buffer, size_t size) { arc4random_buf(buffer,size); return 0; }
 /* [[NSProcessInfo processInfo] beginActivityWithOptions:reason:] through the Objective-C runtime:
  * NSActivityUserInitiated | NSActivityLatencyCritical turns off timer coalescing and App Nap,
