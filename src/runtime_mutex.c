@@ -171,12 +171,12 @@ static ABI int32_t mutex_timedlock(GuestMutex **mutex, uint32_t usec) {
 }
 /* Condition variables: opaque handles over host pthread_cond (CLOCK_REALTIME,
  * like FreeBSD's default), sharing the host mutex behind GuestMutex. */
-typedef struct { pthread_cond_t native; } GuestCond;
+typedef struct { pthread_cond_t native; const char *waker; /* BB_WAKE_STATS: the last signaller */ } GuestCond;
 static size_t conds, waits, wakeups;
 static ABI int32_t cond_init(GuestCond **out, void **attr, const char *name) {
     (void)attr; (void)name;
     if (!out) return orbis_error(EINVAL);
-    GuestCond *c = malloc(sizeof(*c));
+    GuestCond *c = calloc(1, sizeof(*c));
     if (!c) return orbis_error(ENOMEM);
     int e = pthread_cond_init(&c->native, NULL);
     if (e) { free(c); return orbis_error(e); }
@@ -225,7 +225,9 @@ static ABI int32_t cond_wait(GuestCond **cond, GuestMutex **mutex) {
     ++waits;
     const uint64_t start = runtime_wait_clock();
     const int e2 = pthread_cond_wait(&c->native, &(*mutex)->native);
-    runtime_wait_note(0, runtime_wait_clock() - start);
+    const uint64_t waited = runtime_wait_clock() - start;
+    runtime_wait_note(0, waited);
+    runtime_wake_note(0, waited, c->waker);
     return orbis_error(e2);
 }
 static int32_t cond_wait_until(GuestCond **cond, GuestMutex **mutex, const struct timespec *end) {
@@ -236,7 +238,9 @@ static int32_t cond_wait_until(GuestCond **cond, GuestMutex **mutex, const struc
     ++waits;
     const uint64_t start = runtime_wait_clock();
     const int e2 = pthread_cond_timedwait(&c->native, &(*mutex)->native, end);
-    runtime_wait_note(0, runtime_wait_clock() - start);
+    const uint64_t waited = runtime_wait_clock() - start;
+    runtime_wait_note(0, waited);
+    runtime_wake_note(0, waited, e2 ? NULL : c->waker);
     return timed_error(e2);
 }
 static ABI int32_t cond_timedwait(GuestCond **cond, GuestMutex **mutex, uint32_t usec) {
@@ -248,12 +252,14 @@ static ABI int32_t cond_signal(GuestCond **cond) {
     GuestCond *c;
     int32_t e = ensure_cond(cond, &c);
     if (e) return e;
+    if (runtime_wake_stats()) c->waker = runtime_waker_name();
     ++wakeups; return orbis_error(pthread_cond_signal(&c->native));
 }
 static ABI int32_t cond_broadcast(GuestCond **cond) {
     GuestCond *c;
     int32_t e = ensure_cond(cond, &c);
     if (e) return e;
+    if (runtime_wake_stats()) c->waker = runtime_waker_name();
     ++wakeups; return orbis_error(pthread_cond_broadcast(&c->native));
 }
 /* PS4 struct timespec is {int64 sec, int64 nsec}, identical to Linux x86-64. */

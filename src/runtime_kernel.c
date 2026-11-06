@@ -398,6 +398,60 @@ void runtime_wait_note(int kind, uint64_t ns) {
         }
     }
 }
+/* ---- Who wakes the main thread (BB_WAKE_STATS=1) ----
+ * The main thread drives each frame; profiles on iOS showed it waiting 12-27% of the time in
+ * cond_wait and sem_wait. Signals record the signalling thread's name on the condition or the
+ * waiter (a pointer store, only while this is on); the main thread, back from a wait, adds the
+ * time waited to that name. Every 10 s the log gets the totals, busiest first. */
+int runtime_wake_stats(void) {
+    static int on=-1;
+    if (on<0) { const char *e=getenv("BB_WAKE_STATS"); on=e && e[0]=='1'; }
+    return on;
+}
+const char *runtime_waker_name(void) {
+    const char *guest=runtime_thread_name();
+    if (guest && *guest) return guest;
+    static _Thread_local char host[32];
+    if (!host[0]) {
+        pthread_getname_np(pthread_self(),host,sizeof(host));
+        if (!host[0]) snprintf(host,sizeof(host),"unnamed host thread");
+    }
+    return host;
+}
+typedef struct { const char *name; int kind; uint64_t ns, count; } Waker;
+void runtime_wake_note(int kind, uint64_t ns, const char *waker) {
+    if (!runtime_wake_stats()) return;
+    const char *self=runtime_thread_name();
+    if (!self || strcmp(self,"main")) return;
+    static Waker wakers[48];
+    static uint64_t window_start, total_ns;
+    const uint64_t now=runtime_wait_clock();
+    if (!window_start) window_start=now;
+    if (!waker || !*waker) waker="(no signal: timeout or spurious)";
+    total_ns+=ns;
+    for (int i=0;i<48;++i) {
+        if (!wakers[i].name) { wakers[i].name=waker; wakers[i].kind=kind; }
+        if (wakers[i].kind==kind && (wakers[i].name==waker || !strcmp(wakers[i].name,waker))) {
+            wakers[i].ns+=ns; ++wakers[i].count; break;
+        }
+    }
+    if (now-window_start<10000000000ull) return;
+    const double span=(double)(now-window_start)/1e9;
+    printf("Main thread waits (last %.0f s): %.2f s waiting (%.0f%%), woken by:\n",span,total_ns/1e9,100.0*total_ns/(now-window_start));
+    for (int shown=0;shown<8;++shown) {
+        int best=-1;
+        for (int i=0;i<48 && wakers[i].name;++i)
+            if (wakers[i].ns && (best<0 || wakers[i].ns>wakers[best].ns)) best=i;
+        if (best<0) break;
+        printf("  %5.1f%% of the waiting  %-6s %-32s %6llu waits, %.2f ms each\n",100.0*wakers[best].ns/(total_ns?total_ns:1),
+               wakers[best].kind==2 ? "sema" : "cond",wakers[best].name,(unsigned long long)wakers[best].count,
+               wakers[best].ns/1e6/(double)wakers[best].count);
+        wakers[best].ns=0;
+    }
+    fflush(stdout);
+    memset(wakers,0,sizeof(wakers));
+    window_start=now; total_ns=0;
+}
 void runtime_wait_report(double frames) {
     sample_start();
     sample_report();

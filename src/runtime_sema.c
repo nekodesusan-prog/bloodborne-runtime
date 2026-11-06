@@ -13,6 +13,7 @@
 typedef struct Waiter {
     int32_t need, result;
     int done;
+    const char *waker; /* BB_WAKE_STATS: the thread that released it */
     pthread_cond_t event;
     struct Waiter *next;
 } Waiter;
@@ -83,7 +84,9 @@ static int32_t wait_count(uint32_t id,int32_t need,uint32_t *timeout,int block) 
                 *p=w.next; w.result=ERR(60); w.done=1; ++timed_out;
             } else if (e!=ETIMEDOUT) host_check(e);
         }
-        runtime_wait_note(2,runtime_wait_clock()-wait_start);
+        const uint64_t waited=runtime_wait_clock()-wait_start;
+        runtime_wait_note(2,waited);
+        runtime_wake_note(2,waited,w.result ? NULL : w.waker);
         result=w.result;
         if (!result) ++acquired;
         if (timeout) {
@@ -111,6 +114,7 @@ static ABI int32_t sem_signal(uint32_t id,int32_t count) {
             Waiter *w=*p;
             if (w->need>s->count) { p=&w->next; continue; }
             s->count-=w->need; *p=w->next; w->done=1;
+            if (runtime_wake_stats()) w->waker=runtime_waker_name();
             host_check(pthread_cond_signal(&w->event));
         }
     }
