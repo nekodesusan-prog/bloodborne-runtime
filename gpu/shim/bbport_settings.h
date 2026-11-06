@@ -22,13 +22,14 @@ enum Preset : int { NativeAA = 0, Quality, Balanced, Performance, UltraPerforman
 enum DebugView : int { DebugNone = 0, DebugReactive = 1, DebugMotion = 2, DebugViewCount };
 enum class MenuLanguage { English, Russian };
 /// FPS counter: the screen's corners and edge centers (bbport.ini fps_position), and its size
-/// (fps_size: small, one line; big, with the upscaler, resolutions and a frame-time graph).
+/// (fps_size: small, one line; big, with the upscaler, resolutions and a frame-time graph; bar,
+/// one row of FPS, frame time, the app's memory and the battery, as Madeira's).
 enum FpsPosition : int { FpsTopLeft, FpsTopCenter, FpsTopRight, FpsBottomLeft, FpsBottomCenter,
                          FpsBottomRight, FpsPositionCount };
 inline constexpr const char* FpsPositionNames[FpsPositionCount] = {
     "top_left", "top_center", "top_right", "bottom_left", "bottom_center", "bottom_right"};
-enum FpsSize : int { FpsSmall, FpsBig, FpsSizeCount };
-inline constexpr const char* FpsSizeNames[FpsSizeCount] = {"small", "big"};
+enum FpsSize : int { FpsSmall, FpsBig, FpsBar, FpsSizeCount };
+inline constexpr const char* FpsSizeNames[FpsSizeCount] = {"small", "big", "bar"};
 
 /// Game effects switched by the community patches at start (patches.py EFFECTS): ini key,
 /// menu label, default (the game's own behaviour).

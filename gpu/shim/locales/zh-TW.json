@@ -124,6 +124,7 @@
   "launcher.options.fps.30Hint": "與 PS4 相同",
   "launcher.options.fpsSize.small": "小",
   "launcher.options.fpsSize.big": "大",
+  "launcher.options.fpsSize.bar": "效能列",
   "launcher.options.fpsPosition.top_left": "左上",
   "launcher.options.fpsPosition.top_center": "頂部置中",
   "launcher.options.fpsPosition.top_right": "右上",

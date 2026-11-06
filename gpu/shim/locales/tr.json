@@ -124,6 +124,7 @@
   "launcher.options.fps.30Hint": "PS4'teki gibi",
   "launcher.options.fpsSize.small": "Küçük",
   "launcher.options.fpsSize.big": "Büyük",
+  "launcher.options.fpsSize.bar": "Performance bar",
   "launcher.options.fpsPosition.top_left": "Sol üst",
   "launcher.options.fpsPosition.top_center": "Üst orta",
   "launcher.options.fpsPosition.top_right": "Sağ üst",

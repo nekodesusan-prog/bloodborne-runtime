@@ -22,6 +22,7 @@
 #include <sys/resource.h>
 #include <thread>
 #ifdef __APPLE__
+#include <TargetConditionals.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <dlfcn.h>
 #include <objc/message.h>
@@ -716,7 +717,7 @@ void GraphicsTab() {
         SwitchSetting(LT("graphics.showFps"), s.show_fps, nullptr, !launcher);
         ImGui::BeginDisabled(!s.show_fps);
         {
-            const char* sizes[] = {LT("options.fpsSize.small"), LT("options.fpsSize.big")};
+            const char* sizes[] = {LT("options.fpsSize.small"), LT("options.fpsSize.big"), LT("options.fpsSize.bar")};
             static_assert(sizeof(sizes) / sizeof(sizes[0]) == BbSettings::FpsSizeCount);
             int size = s.fps_size;
             const bool size_changed = Choice(LT("graphics.fpsSize"), sizes, BbSettings::FpsSizeCount, &size, nullptr);
@@ -1310,8 +1311,117 @@ void OnlineBanner() {
     ImGui::PopStyleVar(2);
 }
 
+#ifdef __APPLE__
+#include <mach/mach.h>
+#endif
+
+// The app's memory footprint in MiB (what iOS counts against its limit), 0 when unknown.
+static float FootprintMiB() {
+#ifdef __APPLE__
+    task_vm_info_data_t info{};
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count) == KERN_SUCCESS)
+        return float(info.phys_footprint) / 1048576.0f;
+#endif
+    return 0.0f;
+}
+
+// The battery's charge in percent on iOS (UIDevice; the app turns battery monitoring on), -1 elsewhere.
+static float BatteryPercent() {
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+    Class device_class = objc_getClass("UIDevice");
+    if (!device_class) return -1.0f;
+    id device = reinterpret_cast<id (*)(Class, SEL)>(objc_msgSend)(device_class, sel_registerName("currentDevice"));
+    if (!device) return -1.0f;
+    const float level = reinterpret_cast<float (*)(id, SEL)>(objc_msgSend)(device, sel_registerName("batteryLevel"));
+    return level >= 0.0f ? level * 100.0f : -1.0f;
+#else
+    return -1.0f;
+#endif
+}
+
+// fps_size=bar: one row of columns, a small label over each value (FPS, MS, MB, BAT), as Madeira's
+// performance overlay. Memory and battery are read twice a second.
+static void PerformanceBar(int position) {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float pad = S(14);
+    const float column = float(position % 3) * 0.5f;
+    const bool bottom = position >= BbSettings::FpsBottomLeft;
+    ImGui::SetNextWindowPos(
+        ImVec2(viewport->WorkPos.x + pad + (viewport->WorkSize.x - pad * 2.0f) * column,
+               bottom ? viewport->WorkPos.y + viewport->WorkSize.y - pad : viewport->WorkPos.y + pad),
+        ImGuiCond_Always, ImVec2(column, bottom ? 1.0f : 0.0f));
+    ImGui::SetNextWindowBgAlpha(0.8f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, S(14));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(14), S(8)));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(S(2), S(1)));
+    ImGui::Begin("##fps_bar", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
+                     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
+    if (position == BbSettings::FpsTopRight) {
+        fps_top_right_bottom = ImGui::GetWindowPos().y + ImGui::GetWindowSize().y;
+    }
+    static float memory = 0.0f, battery = -1.0f;
+    static auto sampled = std::chrono::steady_clock::time_point{};
+    const auto now = std::chrono::steady_clock::now();
+    if (now - sampled > std::chrono::milliseconds(500)) {
+        sampled = now;
+        memory = FootprintMiB();
+        battery = BatteryPercent();
+    }
+    const float fps = frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f;
+    const ImVec4 health = fps >= 55.0f ? Theme::Foreground : fps >= 30.0f ? Theme::Warning : Theme::PrimaryHover;
+    char values[4][16];
+    const char* labels[4] = {"FPS", "MS", "MB", "BAT"};
+    std::snprintf(values[0], sizeof(values[0]), "%.0f", std::min(fps, 999.0f));
+    std::snprintf(values[1], sizeof(values[1]), "%.1f", frame_ms_avg);
+    std::snprintf(values[2], sizeof(values[2]), "%.0f", memory);
+    std::snprintf(values[3], sizeof(values[3]), "%.0f%%", battery);
+    const int columns = memory > 0.0f ? (battery >= 0.0f ? 4 : 3) : 2;
+    const float value_size = ImGui::GetFontSize() * 1.35f;
+    const float label_size = ImGui::GetFontSize() * 0.8f;
+    // Each column as wide as its widest possible value, so the bar does not jump.
+    const char* widest[4] = {"000", "000.0", "00000", "100%"};
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    for (int i = 0; i < columns; ++i) {
+        ImGui::PushFont(font_text, value_size);
+        const float cell = ImGui::CalcTextSize(widest[i]).x + S(20);
+        const float value_width = ImGui::CalcTextSize(values[i]).x;
+        ImGui::PopFont();
+        if (i > 0) {
+            ImGui::SameLine(0.0f, 0.0f);
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            draw->AddLine(ImVec2(at.x, at.y + S(4)), ImVec2(at.x, at.y + label_size + value_size),
+                          ImGui::GetColorU32(ImVec4(Theme::MutedForeground.x, Theme::MutedForeground.y,
+                                                    Theme::MutedForeground.z, 0.35f)), S(1));
+        }
+        ImGui::BeginGroup();
+        const float left = ImGui::GetCursorPosX();
+        ImGui::PushFont(font_text, label_size);
+        ImGui::SetCursorPosX(left + (cell - ImGui::CalcTextSize(labels[i]).x) * 0.5f);
+        ImGui::PushStyleColor(ImGuiCol_Text, Theme::MutedForeground);
+        ImGui::TextUnformatted(labels[i]);
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+        ImGui::PushFont(font_text, value_size);
+        ImGui::SetCursorPosX(left + (cell - value_width) * 0.5f);
+        ImGui::PushStyleColor(ImGuiCol_Text, i == 0 ? health : Theme::Foreground);
+        ImGui::TextUnformatted(values[i]);
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+        ImGui::Dummy(ImVec2(cell, 0.0f));
+        ImGui::EndGroup();
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(3);
+}
+
 void FpsCounter() {
     const auto& s = BbSettings::Get();
+    if (s.fps_size == BbSettings::FpsBar) {
+        PerformanceBar(std::clamp(s.fps_position.load(), 0, BbSettings::FpsPositionCount - 1));
+        return;
+    }
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     const bool big = s.fps_size == BbSettings::FpsBig;
     const int position = std::clamp(s.fps_position.load(), 0, BbSettings::FpsPositionCount - 1);

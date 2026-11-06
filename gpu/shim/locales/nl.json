@@ -124,6 +124,7 @@
   "launcher.options.fps.30Hint": "Zoals op de PS4",
   "launcher.options.fpsSize.small": "Klein",
   "launcher.options.fpsSize.big": "Groot",
+  "launcher.options.fpsSize.bar": "Performance bar",
   "launcher.options.fpsPosition.top_left": "Linksboven",
   "launcher.options.fpsPosition.top_center": "Midden boven",
   "launcher.options.fpsPosition.top_right": "Rechtsboven",
