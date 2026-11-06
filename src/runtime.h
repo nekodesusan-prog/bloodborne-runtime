@@ -50,6 +50,11 @@ void runtime_wait_report(double frames);
 int runtime_wake_stats(void);
 const char *runtime_waker_name(void);
 void runtime_wake_note(int kind, uint64_t ns, const char *waker);
+/* BB_WAKE_THREAD=TEXT: follow the threads whose guest name contains TEXT ("main" by default).
+ * runtime_wake_fast() counts their semaphore calls that did not sleep (0 taken at once, 1 a poll
+ * that found nothing, 2 a zero timeout). */
+int runtime_wake_tracked(void);
+void runtime_wake_fast(int what);
 void runtime_guest_call_sites(uint64_t out[3]);
 /* bbport: times the game's heap asked for more memory (posix_mmap): a sign it leaks. */
 uint64_t runtime_heap_growths(void);

@@ -109,9 +109,9 @@ static int32_t wait_count(uint32_t id,int32_t need,uint32_t *timeout,int block) 
     if (result) { pthread_mutex_unlock(&lock); return result; }
     if (!s) result=ERR(3);
     else if (need<=0 || need>s->maximum) result=ERR(22);
-    else if (s->count>=need) { s->count-=need; ++acquired; }
-    else if (!block) result=ERR(16);
-    else if (timeout && !*timeout) { result=ERR(60); ++timed_out; }
+    else if (s->count>=need) { s->count-=need; ++acquired; runtime_wake_fast(0); }
+    else if (!block) { result=ERR(16); runtime_wake_fast(1); }
+    else if (timeout && !*timeout) { result=ERR(60); ++timed_out; runtime_wake_fast(2); }
     else {
         /* Priority-ordered semaphores (attr 2) are served FIFO: there is no
            PS4 priority scheduler, host threads run at equal priority. */

@@ -419,38 +419,70 @@ const char *runtime_waker_name(void) {
     return host;
 }
 typedef struct { const char *name; int kind; uint64_t ns, count; } Waker;
+/* The threads followed: those whose guest name contains BB_WAKE_THREAD ("main" by default: the
+ * game's main thread; "Havok" follows the five physics workers together). */
+static const char *wake_thread_filter(void) {
+    static const char *filter;
+    if (!filter) { const char *e=getenv("BB_WAKE_THREAD"); filter=e && *e ? e : "main"; }
+    return filter;
+}
+int runtime_wake_tracked(void) {
+    if (!runtime_wake_stats()) return 0;
+    static _Thread_local int tracked=-1;
+    if (tracked<0) {
+        const char *self=runtime_thread_name(), *filter=wake_thread_filter();
+        tracked=self && *self && (!strcmp(filter,"main") ? !strcmp(self,"main") : strstr(self,filter)!=NULL);
+    }
+    return tracked;
+}
+static pthread_mutex_t wake_lock=PTHREAD_MUTEX_INITIALIZER;
+static Waker wakers[48];
+static uint64_t wake_window, wake_total_ns, wake_fast[3];
+static void wake_report_locked(uint64_t now) {
+    if (!wake_window) wake_window=now;
+    if (now-wake_window<10000000000ull) return;
+    const double span=(double)(now-wake_window)/1e9;
+    uint64_t blocked=0;
+    for (int i=0;i<48 && wakers[i].name;++i) blocked+=wakers[i].count;
+    printf("Waits of threads named '%s' (last %.0f s, all of them together): %.2f s asleep in %llu waits; "
+           "%llu taken without waiting, %llu polls that found nothing, %llu immediate timeouts; woken by:\n",
+           wake_thread_filter(),span,wake_total_ns/1e9,(unsigned long long)blocked,(unsigned long long)wake_fast[0],
+           (unsigned long long)wake_fast[1],(unsigned long long)wake_fast[2]);
+    for (int shown=0;shown<8;++shown) {
+        int best=-1;
+        for (int i=0;i<48 && wakers[i].name;++i)
+            if (wakers[i].count && (best<0 || wakers[i].ns>wakers[best].ns)) best=i;
+        if (best<0) break;
+        printf("  %5.1f%% of the waiting  %-6s %-32s %7llu waits, %.3f ms each\n",100.0*wakers[best].ns/(wake_total_ns?wake_total_ns:1),
+               wakers[best].kind==2 ? "sema" : "cond",wakers[best].name,(unsigned long long)wakers[best].count,
+               wakers[best].ns/1e6/(double)wakers[best].count);
+        wakers[best].count=0;
+    }
+    fflush(stdout);
+    memset(wakers,0,sizeof(wakers));
+    memset(wake_fast,0,sizeof(wake_fast));
+    wake_window=now; wake_total_ns=0;
+}
+void runtime_wake_fast(int what) {
+    if (!runtime_wake_tracked() || what<0 || what>2) return;
+    pthread_mutex_lock(&wake_lock);
+    ++wake_fast[what];
+    wake_report_locked(runtime_wait_clock());
+    pthread_mutex_unlock(&wake_lock);
+}
 void runtime_wake_note(int kind, uint64_t ns, const char *waker) {
-    if (!runtime_wake_stats()) return;
-    const char *self=runtime_thread_name();
-    if (!self || strcmp(self,"main")) return;
-    static Waker wakers[48];
-    static uint64_t window_start, total_ns;
-    const uint64_t now=runtime_wait_clock();
-    if (!window_start) window_start=now;
+    if (!runtime_wake_tracked()) return;
     if (!waker || !*waker) waker="(no signal: timeout or spurious)";
-    total_ns+=ns;
+    pthread_mutex_lock(&wake_lock);
+    wake_total_ns+=ns;
     for (int i=0;i<48;++i) {
         if (!wakers[i].name) { wakers[i].name=waker; wakers[i].kind=kind; }
         if (wakers[i].kind==kind && (wakers[i].name==waker || !strcmp(wakers[i].name,waker))) {
             wakers[i].ns+=ns; ++wakers[i].count; break;
         }
     }
-    if (now-window_start<10000000000ull) return;
-    const double span=(double)(now-window_start)/1e9;
-    printf("Main thread waits (last %.0f s): %.2f s waiting (%.0f%%), woken by:\n",span,total_ns/1e9,100.0*total_ns/(now-window_start));
-    for (int shown=0;shown<8;++shown) {
-        int best=-1;
-        for (int i=0;i<48 && wakers[i].name;++i)
-            if (wakers[i].ns && (best<0 || wakers[i].ns>wakers[best].ns)) best=i;
-        if (best<0) break;
-        printf("  %5.1f%% of the waiting  %-6s %-32s %6llu waits, %.2f ms each\n",100.0*wakers[best].ns/(total_ns?total_ns:1),
-               wakers[best].kind==2 ? "sema" : "cond",wakers[best].name,(unsigned long long)wakers[best].count,
-               wakers[best].ns/1e6/(double)wakers[best].count);
-        wakers[best].ns=0;
-    }
-    fflush(stdout);
-    memset(wakers,0,sizeof(wakers));
-    window_start=now; total_ns=0;
+    wake_report_locked(runtime_wait_clock());
+    pthread_mutex_unlock(&wake_lock);
 }
 void runtime_wait_report(double frames) {
     sample_start();
