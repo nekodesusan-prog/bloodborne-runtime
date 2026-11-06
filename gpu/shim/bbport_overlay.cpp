@@ -1356,7 +1356,8 @@ static float BatteryPercent() {
 }
 
 // fps_size=bar: one row of columns, a small label over each value (FPS, MS, MB, BAT), as Madeira's
-// performance overlay. Memory and battery are read twice a second.
+// performance overlay: a slim pill, about a third of the overlay's text size, so it stays small
+// at the iPad's UI scale. Memory and battery are read twice a second.
 static void PerformanceBar(int position) {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     const float pad = S(14);
@@ -1367,9 +1368,9 @@ static void PerformanceBar(int position) {
                bottom ? viewport->WorkPos.y + viewport->WorkSize.y - pad : viewport->WorkPos.y + pad),
         ImGuiCond_Always, ImVec2(column, bottom ? 1.0f : 0.0f));
     ImGui::SetNextWindowBgAlpha(0.8f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, S(14));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(14), S(8)));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(S(2), S(1)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, S(6));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(5), S(3)));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(S(1), 0.0f));
     ImGui::Begin("##fps_bar", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
                      ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
@@ -1393,22 +1394,22 @@ static void PerformanceBar(int position) {
     std::snprintf(values[2], sizeof(values[2]), "%.0f", memory);
     std::snprintf(values[3], sizeof(values[3]), "%.0f%%", battery);
     const int columns = memory > 0.0f ? (battery >= 0.0f ? 4 : 3) : 2;
-    const float value_size = ImGui::GetFontSize() * 1.35f;
-    const float label_size = ImGui::GetFontSize() * 0.8f;
+    const float value_size = ImGui::GetFontSize() * 0.45f;
+    const float label_size = ImGui::GetFontSize() * 0.28f;
     // Each column as wide as its widest possible value, so the bar does not jump.
     const char* widest[4] = {"000", "000.0", "00000", "100%"};
     ImDrawList* draw = ImGui::GetWindowDrawList();
     for (int i = 0; i < columns; ++i) {
         ImGui::PushFont(font_text, value_size);
-        const float cell = ImGui::CalcTextSize(widest[i]).x + S(20);
+        const float cell = ImGui::CalcTextSize(widest[i]).x + S(8);
         const float value_width = ImGui::CalcTextSize(values[i]).x;
         ImGui::PopFont();
         if (i > 0) {
             ImGui::SameLine(0.0f, 0.0f);
             const ImVec2 at = ImGui::GetCursorScreenPos();
-            draw->AddLine(ImVec2(at.x, at.y + S(4)), ImVec2(at.x, at.y + label_size + value_size),
+            draw->AddLine(ImVec2(at.x, at.y + S(1)), ImVec2(at.x, at.y + label_size + value_size),
                           ImGui::GetColorU32(ImVec4(Theme::MutedForeground.x, Theme::MutedForeground.y,
-                                                    Theme::MutedForeground.z, 0.35f)), S(1));
+                                                    Theme::MutedForeground.z, 0.35f)), S(0.5f));
         }
         ImGui::BeginGroup();
         const float left = ImGui::GetCursorPosX();
