@@ -646,8 +646,12 @@ void Scheduler::WaitHostCopies() {
         BbStats::WaitTimer timer{BbStats::host_copies_wait_ns};
         BbStats::host_copy_waits.fetch_add(1, std::memory_order_relaxed);
         KickRecording(true);
-        while (host_copies_done.load(std::memory_order_acquire) < host_copies_issued) {
-            std::this_thread::yield();
+        // Sleeps until the recording thread stores the copy's sequence number (it notifies),
+        // instead of yielding in a loop: the yields kept the draw thread on a core for the whole
+        // wait (4-9% of its frame time on an iPad).
+        for (u64 done = host_copies_done.load(std::memory_order_acquire);
+             done < host_copies_issued; done = host_copies_done.load(std::memory_order_acquire)) {
+            host_copies_done.wait(done, std::memory_order_acquire);
         }
     }
     BbStats::WaitTimer timer{BbStats::copy_threads_wait_ns};
