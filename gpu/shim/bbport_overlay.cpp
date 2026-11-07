@@ -2243,8 +2243,10 @@ bool Visible() {
     }
     if (!initialized) return false;
     std::scoped_lock lock{banner_mutex};
+    // The shader compile's bar (BB_SHADER_COMPILE) counts too: without a counter or banner on, as
+    // on the iPad with Apple's HUD chosen, the overlay was never drawn and the step showed black.
     return menu_open || prompt_active || BbSettings::Get().show_fps || trophy_queue.Pending() ||
-           TestTitle() || !banner_text.empty() || BbTouch::Shown();
+           TestTitle() || !banner_text.empty() || BbTouch::Shown() || bb_list_shaders_total.load() != 0;
 }
 
 
