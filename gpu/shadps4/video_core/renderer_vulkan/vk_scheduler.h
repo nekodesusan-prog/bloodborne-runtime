@@ -668,6 +668,7 @@ public:
         RecordOrdered([copy = std::forward<Func>(copy), this, seq = ++host_copies_issued] {
             copy();
             host_copies_done.store(seq, std::memory_order_release);
+            host_copies_done.notify_all(); // WaitHostCopies sleeps on it
         });
     }
 

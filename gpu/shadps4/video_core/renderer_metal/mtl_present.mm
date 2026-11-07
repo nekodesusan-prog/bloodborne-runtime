@@ -195,7 +195,15 @@ bool Present(void* layer_ptr, PresentInfo info) {
             destinationBytesPerImage:w * h * 4];
             [blit endEncoding];
         }
+#if TARGET_OS_IPHONE
+        // ProMotion (iPad Pro, 120 Hz): a present with no cadence shows at the next 120 Hz
+        // refresh and keeps the panel at 120 Hz for 60 FPS content. A minimum duration of one
+        // 60 Hz period tells the system the game's rate, so the display can refresh at 60 Hz
+        // (less power, steadier pacing). The game never presents faster than its 60 Hz vblank.
+        [cmd presentDrawable:drawable afterMinimumDuration:1.0 / 60.0];
+#else
         [cmd presentDrawable:drawable];
+#endif
         __block std::function<void()> on_done = std::move(info.done);
         __block std::string path = std::move(info.dump_path);
         [cmd addCompletedHandler:^(id<MTLCommandBuffer>) {
