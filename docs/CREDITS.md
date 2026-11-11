@@ -44,6 +44,11 @@ project it is based on.
 
 Changes taken from other ports of bbport, with thanks:
 
+- [**cheemu21/kid-with-sword-remake**](https://github.com/cheemu21/kid-with-sword-remake/commit/a758ea2)
+  (an nxnative fork by seedds and its contributors, MIT, `a758ea2`): frame generation with
+  MetalFX's frame interpolator from the finished pictures alone (constant far depth, no motion),
+  adapted in `video_core/renderer_metal/mtl_present.mm` (`BB_FRAMEGEN=1`). Its idea came from
+  NotRexed's Hookshot.
 - [**Huax-1839/bloodborne-macos**](https://github.com/Huax-1839/bloodborne-macos/commit/0f0cf54)
   (GPL-2.0-or-later, `0f0cf54`, Huax-1839's first public code snapshot): the direct Metal
   renderer that supplied the SPIR-V to MSL shader compiler, the rect-list, tessellation and

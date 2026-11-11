@@ -2,7 +2,9 @@
 // The render adapter's Metal presents (mtl_present.h). ARC.
 
 #import <Metal/Metal.h>
+#import <MetalFX/MetalFX.h>
 #import <QuartzCore/CAMetalLayer.h>
+#include <dlfcn.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -135,12 +137,225 @@ id<MTLRenderPipelineState> Pipeline(Passes& passes, id<MTLDevice> device, MTLPix
     return pipeline;
 }
 
+
+/// Frame generation (BB_FRAMEGEN=1): MetalFX's frame interpolator makes the frame halfway between
+/// each two presents, shown one 60 Hz period before the game's own (the game at 30 FPS, the screen
+/// at 60). Adapted from cheemu21/kid-with-sword-remake (nxnative fork, MIT, commit a758ea2,
+/// dm/gfx/nvn/nvn_mtl.m fg_for/fg_encode): the interpolator works from the finished pictures
+/// alone, with a constant far depth (reversed, 0) and no motion, and MetalFX finds the motion.
+struct FrameGen {
+    bool checked{}, on{}, bad{};
+    id fi; ///< id<MTLFXFrameInterpolator> (iOS/macOS 26)
+    NSUInteger format{}, width{}, height{};
+    id<MTLTexture> history[2]; ///< copies of the last two presented frames
+    id<MTLTexture> gen, depth, motion;
+    int cur{};                 ///< the slot the next copy goes to
+    int filled{};              ///< presents copied since the history started (or restarted)
+    bool clear{};
+    uint64_t made{}, resets{};
+};
+
+FrameGen& GetFrameGen() {
+    static FrameGen g;
+    return g;
+}
+
+bool FrameGenEnabled(id<MTLDevice> device) {
+    auto& g = GetFrameGen();
+    if (g.checked) {
+        return g.on;
+    }
+    g.checked = true;
+    const char* env = std::getenv("BB_FRAMEGEN");
+    if (!env || env[0] != '1') {
+        return false;
+    }
+    if (@available(iOS 26.0, macOS 26.0, *)) {
+        dlopen("/System/Library/Frameworks/MetalFX.framework/MetalFX", RTLD_LAZY | RTLD_LOCAL);
+        Class cls = NSClassFromString(@"MTLFXFrameInterpolatorDescriptor");
+        if (cls && [cls respondsToSelector:@selector(supportsDevice:)] &&
+            [cls supportsDevice:device]) {
+            g.on = true;
+            std::printf("Frame generation (BB_FRAMEGEN=1): MetalFX's frame interpolator makes a "
+                        "frame between each two presents, shown a 60 Hz period before the game's\n");
+            return true;
+        }
+    }
+    std::printf("Frame generation: this device has no MetalFX frame interpolator; frames are "
+                "shown as the game draws them\n");
+    return false;
+}
+
+id<MTLTexture> NewTexture(id<MTLDevice> device, MTLPixelFormat format, NSUInteger width,
+                          NSUInteger height, MTLTextureUsage usage) {
+    MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
+                                                                                 width:width
+                                                                                height:height
+                                                                             mipmapped:NO];
+    d.storageMode = MTLStorageModePrivate;
+    d.usage = usage;
+    return [device newTextureWithDescriptor:d];
+}
+
+/// The interpolator and its textures for frames of this format and size (made again when either
+/// changes); false when MetalFX makes none.
+API_AVAILABLE(ios(26.0), macos(26.0))
+bool FrameGenFor(FrameGen& g, id<MTLDevice> device, id<MTLTexture> frame) {
+    if ((g.fi || g.bad) && g.format == frame.pixelFormat && g.width == frame.width &&
+        g.height == frame.height) {
+        return g.fi != nil;
+    }
+    g.fi = nil;
+    g.bad = true; // until everything below is made
+    g.format = frame.pixelFormat;
+    g.width = frame.width;
+    g.height = frame.height;
+    g.filled = 0;
+    Class cls = NSClassFromString(@"MTLFXFrameInterpolatorDescriptor");
+    MTLFXFrameInterpolatorDescriptor* d = [[cls alloc] init];
+    d.colorTextureFormat = frame.pixelFormat;
+    d.outputTextureFormat = frame.pixelFormat;
+    d.depthTextureFormat = MTLPixelFormatDepth32Float;
+    d.motionTextureFormat = MTLPixelFormatRG16Float;
+    d.inputWidth = frame.width;
+    d.inputHeight = frame.height;
+    d.outputWidth = frame.width;
+    d.outputHeight = frame.height;
+    id<MTLFXFrameInterpolator> fi = [d newFrameInterpolatorWithDevice:device];
+    if (!fi) {
+        std::printf("Frame generation: MetalFX makes no frame interpolator for %lux%lu format %lu; "
+                    "frames are shown as the game draws them\n",
+                    (unsigned long)frame.width, (unsigned long)frame.height,
+                    (unsigned long)frame.pixelFormat);
+        return false;
+    }
+    const MTLTextureUsage color = MTLTextureUsageShaderRead | fi.colorTextureUsage;
+    g.history[0] = NewTexture(device, frame.pixelFormat, frame.width, frame.height, color);
+    g.history[1] = NewTexture(device, frame.pixelFormat, frame.width, frame.height, color);
+    g.gen = NewTexture(device, frame.pixelFormat, frame.width, frame.height,
+                       fi.outputTextureUsage | MTLTextureUsageShaderRead);
+    g.depth = NewTexture(device, MTLPixelFormatDepth32Float, frame.width, frame.height,
+                         fi.depthTextureUsage | MTLTextureUsageRenderTarget);
+    g.motion = NewTexture(device, MTLPixelFormatRG16Float, frame.width, frame.height,
+                          fi.motionTextureUsage | MTLTextureUsageRenderTarget);
+    if (!g.history[0] || !g.history[1] || !g.gen || !g.depth || !g.motion) {
+        std::printf("Frame generation: no textures for %lux%lu\n", (unsigned long)frame.width,
+                    (unsigned long)frame.height);
+        return false;
+    }
+    g.fi = fi;
+    g.bad = false;
+    g.clear = true;
+    std::printf("Frame generation: MetalFX frame interpolator %lux%lu format %lu\n",
+                (unsigned long)frame.width, (unsigned long)frame.height,
+                (unsigned long)frame.pixelFormat);
+    return true;
+}
+
+/// Copies `frame` into the history and, when the frame before it is there, encodes the frame
+/// between the two into g.gen. True when g.gen holds a frame to show.
+bool FrameGenEncode(FrameGen& g, id<MTLDevice> device, id<MTLCommandBuffer> cmd,
+                    id<MTLTexture> frame) {
+    if (@available(iOS 26.0, macOS 26.0, *)) {
+        if (!FrameGenFor(g, device, frame)) {
+            return false;
+        }
+        if (g.clear) { // the constant inputs: far depth (0, reversed) and no motion
+            MTLRenderPassDescriptor* rp = [MTLRenderPassDescriptor renderPassDescriptor];
+            rp.colorAttachments[0].texture = g.motion;
+            rp.colorAttachments[0].loadAction = MTLLoadActionClear;
+            rp.colorAttachments[0].storeAction = MTLStoreActionStore;
+            rp.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0);
+            rp.depthAttachment.texture = g.depth;
+            rp.depthAttachment.loadAction = MTLLoadActionClear;
+            rp.depthAttachment.storeAction = MTLStoreActionStore;
+            rp.depthAttachment.clearDepth = 0.0;
+            [[cmd renderCommandEncoderWithDescriptor:rp] endEncoding];
+            g.clear = false;
+        }
+        const int k = g.cur, prev = 1 - g.cur;
+        id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+        [blit copyFromTexture:frame toTexture:g.history[k]];
+        [blit endEncoding];
+        g.cur = prev;
+        if (++g.filled < 2) {
+            return false; // nothing before it yet: the next present interpolates from this one
+        }
+        id<MTLFXFrameInterpolator> fi = (id<MTLFXFrameInterpolator>)g.fi;
+        fi.colorTexture = g.history[k];
+        fi.prevColorTexture = g.history[prev];
+        fi.outputTexture = g.gen;
+        fi.depthTexture = g.depth;
+        fi.motionTexture = g.motion;
+        fi.motionVectorScaleX = 1;
+        fi.motionVectorScaleY = 1;
+        fi.deltaTime = 1.0f / 30.0f;
+        fi.nearPlane = 0.1f;
+        fi.farPlane = 1000.0f;
+        fi.fieldOfView = 60.0f;
+        fi.aspectRatio = float(frame.width) / float(frame.height);
+        fi.jitterOffsetX = 0;
+        fi.jitterOffsetY = 0;
+        fi.depthReversed = YES;
+        fi.shouldResetHistory = g.filled == 2;
+        [fi encodeToCommandBuffer:cmd];
+        // The first two after a start are the new frame unchanged (the fork's probe): shown from
+        // the third on.
+        if (g.filled < 4) {
+            return false;
+        }
+        if (!(++g.made % 1800)) {
+            std::printf("Frame generation: %llu frames generated\n", (unsigned long long)g.made);
+        }
+        return true;
+    }
+    return false;
+}
 } // namespace
 
 bool Present(void* layer_ptr, PresentInfo info) {
     @autoreleasepool {
         CAMetalLayer* layer = (__bridge CAMetalLayer*)layer_ptr;
         id<MTLDevice> device = layer.device;
+        if (FrameGenEnabled(device)) {
+            // The generated frame first, in a drawable of its own: it is shown at the next
+            // refresh and the game's frame (below) one 60 Hz period after it.
+            id<MTLTexture> source = MetalFrame::ImageTexture(static_cast<VkImage>(info.frame));
+            auto& g = GetFrameGen();
+            id<MTLCommandQueue> fq = (__bridge id<MTLCommandQueue>)MetalLayer::MtlQueue();
+            id<MTLCommandBuffer> fcmd = source ? [fq commandBuffer] : nil;
+            if (fcmd) {
+                fcmd.label = @"bbport frame generation";
+                if (FrameGenEncode(g, device, fcmd, source) && info.fit.width && info.fit.height) {
+                    auto& fpasses = GetPasses(device);
+                    id<MTLRenderPipelineState> fpipe = Pipeline(fpasses, device, layer.pixelFormat);
+                    id<CAMetalDrawable> fdrawable = fpipe ? [layer nextDrawable] : nil;
+                    if (fdrawable) {
+                        MTLRenderPassDescriptor* fpass = [MTLRenderPassDescriptor renderPassDescriptor];
+                        fpass.colorAttachments[0].texture = fdrawable.texture;
+                        fpass.colorAttachments[0].loadAction = MTLLoadActionClear;
+                        fpass.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
+                        fpass.colorAttachments[0].storeAction = MTLStoreActionStore;
+                        id<MTLRenderCommandEncoder> fenc = [fcmd renderCommandEncoderWithDescriptor:fpass];
+                        fenc.label = @"bbport generated frame";
+                        [fenc setRenderPipelineState:fpipe];
+                        [fenc setViewport:(MTLViewport){double(info.fit.x), double(info.fit.y),
+                                                        double(info.fit.width), double(info.fit.height),
+                                                        0.0, 1.0}];
+                        [fenc setFragmentTexture:g.gen atIndex:0];
+                        [fenc setFragmentSamplerState:fpasses.sampler atIndex:0];
+                        [fenc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+                        [fenc endEncoding];
+#if TARGET_OS_IPHONE
+                        [fcmd presentDrawable:fdrawable afterMinimumDuration:1.0 / 60.0];
+#else
+                        [fcmd presentDrawable:fdrawable];
+#endif
+                    }
+                }
+                [fcmd commit];
+            }
+        }
         id<CAMetalDrawable> drawable = [layer nextDrawable];
         id<MTLTexture> frame = MetalFrame::ImageTexture(static_cast<VkImage>(info.frame));
         auto& passes = GetPasses(device);
