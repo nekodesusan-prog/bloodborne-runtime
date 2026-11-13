@@ -707,7 +707,16 @@ bool Present(void* layer_ptr, PresentInfo info) {
         // refresh and keeps the panel at 120 Hz for 60 FPS content. A minimum duration of one
         // 60 Hz period tells the system the game's rate, so the display can refresh at 60 Hz
         // (less power, steadier pacing). The game never presents faster than its 60 Hz vblank.
-        [cmd presentDrawable:drawable afterMinimumDuration:1.0 / 60.0];
+        // With a frame limit that divides 120 (BB_FPS_LIMIT=40 or 30) and no frame generation,
+        // each frame is held for 1/limit s: on a 120 Hz screen 40 FPS is 3 refreshes a frame,
+        // evenly, where a 60 Hz cadence alternated 1 and 2 refreshes.
+        static const double period = [] {
+            const char* env = std::getenv("BB_FPS_LIMIT");
+            const long limit = env ? std::strtol(env, nullptr, 10) : 0;
+            return limit > 0 && limit < 60 && 120 % limit == 0 ? 1.0 / double(limit) : 1.0 / 60.0;
+        }();
+        [cmd presentDrawable:drawable
+            afterMinimumDuration:FrameGenEnabled(device) ? 1.0 / 60.0 : period];
 #else
         [cmd presentDrawable:drawable];
 #endif
