@@ -310,7 +310,8 @@ struct FrameGen {
     FrameGenSet sets[2]; ///< the game's frame and another size (menus, movies) without remaking
     uint64_t clock{};
     double last_present{};      ///< seconds, the previous present
-    uint64_t presents{}, last_drop{}, paused_until{}, pause{30};
+    uint64_t presents{}, paused_until{};
+    uint64_t drops[3]{};        ///< the present numbers of the last three late presents
     uint64_t made{}, late{}, paused{};
 };
 
@@ -484,23 +485,23 @@ void Dispatch(id<MTLComputeCommandEncoder> ce, id<MTLComputePipelineState> ps, N
 id<MTLTexture> FrameGenEncode(FrameGen& g, id<MTLDevice> device, id<MTLCommandBuffer> cmd,
                               id<MTLTexture> frame) {
     if (@available(iOS 26.0, macOS 26.0, *)) {
-        // Late frames: a present more than 1.5 frames (at 30 FPS) after the one before shows no
-        // generated frame; one within 30 presents of the previous late one stops the
-        // interpolation for 30 presents, doubling with each new stop up to 300.
+        // Late frames: a present more than 1.75 frames (at 30 FPS, 58 ms) after the one before
+        // shows no generated frame; one a single 60 Hz refresh late (50 ms, common in busy
+        // scenes) still does. Three late presents within 30 stop the interpolation for 30
+        // presents (one second). The fork's stricter rule (any 50 ms frame, pauses doubling up to
+        // 300) kept it paused for most of a Bloodborne session: 9,682 of about 13,000 presents.
         const double now = NowSeconds();
-        const bool late = g.last_present > 0 && now - g.last_present > 1.5 / 30.0;
+        const bool late = g.last_present > 0 && now - g.last_present > 1.75 / 30.0;
         g.last_present = now;
         ++g.presents;
         if (late) {
             ++g.late;
-            if (g.last_drop && g.presents - g.last_drop <= 30) {
-                g.paused_until = g.presents + g.pause;
-                g.pause = std::min<uint64_t>(g.pause * 2, 300);
+            g.drops[0] = g.drops[1];
+            g.drops[1] = g.drops[2];
+            g.drops[2] = g.presents;
+            if (g.drops[0] && g.presents - g.drops[0] <= 30) {
+                g.paused_until = g.presents + 30;
             }
-            g.last_drop = g.presents;
-        } else if (g.paused_until && g.presents >= g.paused_until + 30) {
-            g.pause = 30; // steady again: the next stop starts short
-            g.paused_until = 0;
         }
         FrameGenSet* sp = FrameGenFor(g, device, frame);
         if (!sp) {
